@@ -36,10 +36,18 @@ def connect():
         # Create a cursor
         cur = conn.cursor()
 
-        print('PostgreSQL database version:')
-        cur.execute('SELECT version()')
-        db_servion = cur.fetchone()
-        print(db_servion)
+        """sql to be executed"""
+        sql = 'CREATE TABLE IF NOT EXISTS RATINGS(' \
+              'UserID INT PRIMARY KEY NOT NULL,' \
+              'MovieID INT NOT NULL,' \
+              'Rating INT NOT NULL' \
+                ')';
+
+
+        print('PostgreSQL database :')
+        cur.execute(sql)
+        db_query = cur.fetchone()
+        print(db_query)
 
         cur.close()
     except (Exception, psycopg2.DatabaseError) as error:
