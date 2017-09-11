@@ -2,3 +2,17 @@
 *.xml
 
 Assignment1/.idea/Assignment1.iml
+
+Assignment1/ml-10M100K/movies.dat
+
+*.html
+
+*.sh
+
+Assignment1/ml-10M100K/split_ratings.sh
+
+Assignment1/ml-10M100K/tags.dat
+
+Assignment1/ml-10M100K/allbut.pl
+
+Assignment1/ml-10M100K/ratings1.dat

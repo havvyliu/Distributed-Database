@@ -16,7 +16,7 @@ def getopenconnection(user='postgres', password='1234', dbname='dds_assgn1'):
 
 def test(openconnection):
     # sql to be tested
-    sql =  "SELECT * FROM RATINGS;"
+    sql =  "SELECT * FROM rrobin_part0;"
     cur = openconnection.cursor()
     cur.execute(sql)
     query = cur.fetchall()
@@ -27,25 +27,125 @@ def loadratings(ratingstablename, ratingsfilepath, openconnection):
     """Using to_sql doesnt seem to work, swtich to old style"""
     # engine = create_engine('postgresql+psycopg2://postgres:postgres@localhost:5432/dds_assgn1')
     # load_data().to_sql(name=ratingstablename, con=engine, if_exists='replace', index=False)
+
+    # clean table
+    create_table(openconnection)
+
     cur = openconnection.cursor();
     for index, row in load_data().iterrows():
         sql = "INSERT INTO RATINGS (UserID, MovieID, Rating) VALUES (%s, %s, %s);"
         cur.execute(sql, (row['userid'], row['movieid'], row['rating']))
 
     openconnection.commit()
-    test(openconnection=openconnection)
 
-    # clean up
-    cur.close()
-    openconnection.close()
+    # test(openconnection=openconnection)
+
+    # # clean up
+    # cur.close()
+    # openconnection.close()
 
 
 def rangepartition(ratingstablename, numberofpartitions, openconnection):
-    pass
+    # get cursor
+    cur = openconnection.cursor()
+
+    range1 = 5.0 / numberofpartitions
+
+    for num in range(0, numberofpartitions):
+        if num==0:
+            cur.execute('DROP TABLE IF EXISTS range_part{0}'.format(num))
+            # sql = "CREATE TABLE PARTITION_%s (CHECK (rating < %d AND rating >= %d)) INHERITS (RATINGS);"
+            cur.execute("CREATE TABLE range_part{1} (CHECK (rating <= {2} AND rating >= {3})) INHERITS (RATINGS);"
+                        "CREATE INDEX range_part{4}_idx ON range_part{5} (rating);".format(num, num, (num+1)*range1, (num)*(range1), num, num))
+        else:
+            cur.execute('DROP TABLE IF EXISTS range_part{0}'.format(num))
+            # sql = "CREATE TABLE PARTITION_%s (CHECK (rating < %d AND rating >= %d)) INHERITS (RATINGS);"
+            cur.execute("CREATE TABLE range_part{1} (CHECK (rating <= {2} AND rating > {3})) INHERITS (RATINGS);"
+                        "CREATE INDEX range_part{4}_idx ON range_part{5} (rating);".format(num, num, (num + 1) * range1,
+                                                                                           (num) * (range1), num, num))
+    openconnection.commit()
+
+    # create create_partition_insert()
+    if numberofpartitions <= 1:
+        sql_function = "" \
+                       "CREATE OR REPLACE FUNCTION create_partition_insert() " \
+                       "RETURNS trigger AS $$" \
+                        "BEGIN " \
+                       "IF (NEW.rating < {0} AND NEW.rating >= {1}) " \
+                            "THEN INSERT INTO range_part{2} VALUES (NEW.*);" \
+                       "ELSE " \
+                            "RAISE EXCEPTION 'Date out of range. check orders_insert() function!';" \
+                       "END IF;" \
+                       "RETURN NULL;" \
+                       "END; " \
+                       "$$ " \
+                       "LANGUAGE plpgsql;"\
+            .format(6, 0, 0)
+        cur.execute(sql_function)
+    else:
+        sql = ""
+        for num in range(1, numberofpartitions):
+            sql_mid =     "ELSIF (NEW.rating > {0} AND NEW.rating <= {1}) " \
+                                "THEN INSERT INTO range_part{2} VALUES (NEW.*);".format(range1*num, range1*(num+1), num)
+            sql = sql + sql_mid
+        sql_begin = "CREATE OR REPLACE FUNCTION create_partition_insert() " \
+                       "RETURNS TRIGGER AS " \
+                        "$$ " \
+                        "BEGIN " \
+                       "IF (NEW.rating <= {0} AND NEW.rating >= {1}) " \
+                            "THEN INSERT INTO range_part{2} VALUES (NEW.*);".format(range1, 0, 0)
+        sql_end =       "ELSE " \
+                            "RAISE EXCEPTION 'Date out of range. check orders_insert() function!';" \
+                        "END IF;" \
+                        "RETURN NULL;" \
+                       "END; " \
+                       "$$ " \
+                       "LANGUAGE plpgsql;"
+        cur.execute(sql_begin + sql + sql_end)
+
+    # create trigger
+    trigger_sql = "DROP TRIGGER IF EXISTS partition_insert_trigger ON RATINGS;" \
+                  "CREATE TRIGGER partition_insert_trigger" \
+                  "  BEFORE INSERT ON RATINGS" \
+                  "   FOR EACH ROW EXECUTE PROCEDURE create_partition_insert();"
+    cur.execute(trigger_sql)
+
+    openconnection.commit()
+
 
 
 def roundrobinpartition(ratingstablename, numberofpartitions, openconnection):
-    pass
+    # get cursor
+    cur = openconnection.cursor()
+
+    # partition table creation
+    for num in range(0, numberofpartitions):
+        cur.execute('DROP TABLE IF EXISTS rrobin_part{0}'.format(num))
+        # sql = "CREATE TABLE PARTITION_%s (CHECK (rating < %d AND rating >= %d)) INHERITS (RATINGS);"
+        cur.execute("CREATE TABLE rrobin_part{0} (CHECK (rating < 6 AND rating >= 0)) INHERITS (RATINGS);".format(num))
+
+    # get count
+    count = 0
+
+    # insert data into partition table
+    cur.execute("DROP TRIGGER IF EXISTS create_rr_insert_trigger ON RATINGS;")
+    cur.execute("SELECT * FROM RATINGS")
+    data = cur.fetchall()
+    for row in data:
+        cur.execute("INSERT INTO rrobin_part{0}(UserID, MovieID, Rating) VALUES ({1},{2},{3})".format(count, row[1], row[2], row[3]))
+        count += 1
+        count = count % numberofpartitions
+
+    test(openconnection)
+
+    # create trigger
+    # trigger_sql = "DROP TRIGGER IF EXISTS create_rr_insert_trigger ON RATINGS;" \
+    #               "CREATE TRIGGER create_rr_insert_trigger" \
+    #               "  BEFORE INSERT ON RATINGS" \
+    #               "   FOR EACH ROW EXECUTE PROCEDURE create_rr_partition_insert();"
+    # cur.execute(trigger_sql)
+
+    openconnection.commit()
 
 
 def roundrobininsert(ratingstablename, userid, itemid, rating, openconnection):
@@ -81,7 +181,7 @@ def create_db(dbname):
 
 def create_table(openconnection):
     """sql to be executed to generate table"""
-    sql_table_create = 'DROP TABLE RATINGS;' \
+    sql_table_create = 'DROP TABLE IF EXISTS RATINGS CASCADE ;' \
                        'CREATE TABLE RATINGS(' \
           'Index SERIAL PRIMARY KEY,' \
             'UserID INT NOT NULL,' \
@@ -150,6 +250,10 @@ if __name__ == '__main__':
             filepath = '/ml-10M100K/ratings.dat'
 
             loadratings(table_name, filepath, con)
+
+            roundrobinpartition(table_name, 6, con)
+
+
 
 
             # Here is where I will start calling your functions to test them. For example,
