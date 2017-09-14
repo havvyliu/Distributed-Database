@@ -9,6 +9,10 @@ from sqlalchemy import create_engine
 
 DATABASE_NAME = 'dds_assgn1'
 
+count = 0
+rr_partition = 0
+range_partition = 0
+
 
 def getopenconnection(user='postgres', password='1234', dbname='dds_assgn1'):
     return psycopg2.connect("dbname='" + dbname + "' user='" + user + "' host='localhost' password='" + password + "'")
@@ -36,18 +40,34 @@ def loadratings(ratingstablename, ratingsfilepath, openconnection):
         sql = "INSERT INTO RATINGS (UserID, MovieID, Rating) VALUES (%s, %s, %s);"
         cur.execute(sql, (row['userid'], row['movieid'], row['rating']))
 
-    openconnection.commit()
-
-    # test(openconnection=openconnection)
 
     # # clean up
     # cur.close()
     # openconnection.close()
 
 
+def loadratingsWithOutClean(ratingstablename, ratingsfilepath, openconnection):
+    """Using to_sql doesnt seem to work, swtich to old style"""
+    # engine = create_engine('postgresql+psycopg2://postgres:postgres@localhost:5432/dds_assgn1')
+    # load_data().to_sql(name=ratingstablename, con=engine, if_exists='replace', index=False)
+
+    # clean table
+    # create_table(openconnection)
+
+    cur = openconnection.cursor();
+    for index, row in load_data().iterrows():
+        sql = "INSERT INTO RATINGS (UserID, MovieID, Rating) VALUES (%s, %s, %s);"
+        cur.execute(sql, (row['userid'], row['movieid'], row['rating']))
+
 def rangepartition(ratingstablename, numberofpartitions, openconnection):
+    global  range_partition
+    range_partition = max(range_partition, numberofpartitions)
+
     # get cursor
     cur = openconnection.cursor()
+
+    # clean?
+    create_table(openconnection)
 
     range1 = 5.0 / numberofpartitions
 
@@ -55,15 +75,16 @@ def rangepartition(ratingstablename, numberofpartitions, openconnection):
         if num==0:
             cur.execute('DROP TABLE IF EXISTS range_part{0}'.format(num))
             # sql = "CREATE TABLE PARTITION_%s (CHECK (rating < %d AND rating >= %d)) INHERITS (RATINGS);"
-            cur.execute("CREATE TABLE range_part{1} (CHECK (rating <= {2} AND rating >= {3})) INHERITS (RATINGS);"
-                        "CREATE INDEX range_part{4}_idx ON range_part{5} (rating);".format(num, num, (num+1)*range1, (num)*(range1), num, num))
+            cur.execute("CREATE TABLE range_part{0} (CHECK (rating <= {1} AND rating >= {2})) INHERITS (RATINGS);"
+                        "CREATE INDEX range_part{3}_idx ON range_part{4} (rating);".format(num, (num+1)*range1, (num)*(range1), num, num))
+
         else:
             cur.execute('DROP TABLE IF EXISTS range_part{0}'.format(num))
             # sql = "CREATE TABLE PARTITION_%s (CHECK (rating < %d AND rating >= %d)) INHERITS (RATINGS);"
-            cur.execute("CREATE TABLE range_part{1} (CHECK (rating <= {2} AND rating > {3})) INHERITS (RATINGS);"
-                        "CREATE INDEX range_part{4}_idx ON range_part{5} (rating);".format(num, num, (num + 1) * range1,
+            cur.execute("CREATE TABLE range_part{0} (CHECK (rating <= {1} AND rating > {2})) INHERITS (RATINGS);"
+                        "CREATE INDEX range_part{3}_idx ON range_part{4} (rating);".format(num, (num + 1) * range1,
                                                                                            (num) * (range1), num, num))
-    openconnection.commit()
+
 
     # create create_partition_insert()
     if numberofpartitions <= 1:
@@ -105,38 +126,50 @@ def rangepartition(ratingstablename, numberofpartitions, openconnection):
 
     # create trigger
     trigger_sql = "DROP TRIGGER IF EXISTS partition_insert_trigger ON RATINGS;" \
-                  "CREATE TRIGGER partition_insert_trigger" \
+                  "CREATE TRIGGER create_insert_trigger" \
                   "  BEFORE INSERT ON RATINGS" \
                   "   FOR EACH ROW EXECUTE PROCEDURE create_partition_insert();"
     cur.execute(trigger_sql)
+
+
+    loadratingsWithOutClean('RATINGS', 'ml-10M100K/ratings.dat', openconnection)
+
 
     openconnection.commit()
 
 
 
 def roundrobinpartition(ratingstablename, numberofpartitions, openconnection):
+    global rr_partition
+    rr_partition = max(rr_partition, numberofpartitions)
+
     # get cursor
     cur = openconnection.cursor()
+
+    delete_rrobin_part_table(rr_partition, openconnection)
 
     # partition table creation
     for num in range(0, numberofpartitions):
         cur.execute('DROP TABLE IF EXISTS rrobin_part{0}'.format(num))
         # sql = "CREATE TABLE PARTITION_%s (CHECK (rating < %d AND rating >= %d)) INHERITS (RATINGS);"
-        cur.execute("CREATE TABLE rrobin_part{0} (CHECK (rating < 6 AND rating >= 0)) INHERITS (RATINGS);".format(num))
+        cur.execute("CREATE TABLE rrobin_part{0} (CHECK (rating <= 5 AND rating >= 0)) INHERITS (RATINGS);".format(num))
 
     # get count
+    global count
     count = 0
 
+    global rr_partition
+    rr_partition = numberofpartitions
+
+
     # insert data into partition table
-    cur.execute("DROP TRIGGER IF EXISTS create_rr_insert_trigger ON RATINGS;")
     cur.execute("SELECT * FROM RATINGS")
     data = cur.fetchall()
+    print data
     for row in data:
         cur.execute("INSERT INTO rrobin_part{0}(UserID, MovieID, Rating) VALUES ({1},{2},{3})".format(count, row[1], row[2], row[3]))
         count += 1
         count = count % numberofpartitions
-
-    test(openconnection)
 
     # create trigger
     # trigger_sql = "DROP TRIGGER IF EXISTS create_rr_insert_trigger ON RATINGS;" \
@@ -149,11 +182,23 @@ def roundrobinpartition(ratingstablename, numberofpartitions, openconnection):
 
 
 def roundrobininsert(ratingstablename, userid, itemid, rating, openconnection):
-    pass
+    # insert data
+    cur = openconnection.cursor()
+    cur.execute("INSERT INTO {0}(userid, movieid, rating) VALUES ({1}, {2}, {3})".format(ratingstablename, userid, itemid, rating))
+    cur.execute("INSERT INTO rrobin_part{0}(userid, movieid, rating) VALUES ({1}, {2}, {3})".format(count, userid, itemid, rating))
+    global count
+    count += 1
+    count = count % rr_partition
+
+    # test
 
 
 def rangeinsert(ratingstablename, userid, itemid, rating, openconnection):
-    pass
+    # since we have trigger just insert directly
+    cur = openconnection.cursor()
+    cur.execute("INSERT INTO RATINGS(userid, movieid, rating) VALUES ({0},{1},{2})".format(userid, itemid, rating))
+
+    openconnection.commit()
 
 
 def create_db(dbname):
@@ -193,7 +238,6 @@ def create_table(openconnection):
     """generate new table"""
     cur.execute(sql_table_create)
     print("table has been generated")
-    openconnection.commit()
     cur.close()
 
 """Load data into dataframe using Pandas and return it"""
@@ -203,6 +247,27 @@ def load_data():
     dataFrame.drop(labels='time', axis=1, inplace=True)
     return dataFrame
 
+def deletepartitionsandexit(openconnection):
+    delete_range_part_table(range_partition, openconnection)
+    delete_rrobin_part_table(rr_partition, openconnection)
+    create_table(openconnection)
+    exit(code=100)
+
+# delete all main table as well as other partition table
+def delete_rrobin_part_table(numberofpartition, openconnection):
+    cur = openconnection.cursor()
+    # delete range_part
+    for num in range(0, numberofpartition):
+        if num==0:
+            cur.execute('DROP TABLE IF EXISTS rrobin_part{0}'.format(num))
+
+
+def delete_range_part_table(numberofpartition, openconnection):
+    cur = openconnection.cursor()
+    # delete range_part
+    for num in range(0, numberofpartition):
+        if num == 0:
+            cur.execute('DROP TABLE IF EXISTS range_part{0}'.format(num))
 
 # Middleware
 def before_db_creation_middleware():
@@ -220,6 +285,7 @@ def after_db_creation_middleware(databasename):
 
 def before_test_script_starts_middleware(openconnection, databasename):
     # Use it if you want to
+    create_table(openconnection)
     pass
 
 
@@ -250,10 +316,16 @@ if __name__ == '__main__':
             filepath = '/ml-10M100K/ratings.dat'
 
             loadratings(table_name, filepath, con)
+            #
+            #
+            roundrobinpartition(table_name, 8, con)
+            #
+            #
+            # # roundrobininsert(table_name,3, 3,5, con)
 
-            roundrobinpartition(table_name, 6, con)
-
-
+            #
+            create_table(con)
+            deletepartitionsandexit(con)
 
 
             # Here is where I will start calling your functions to test them. For example,
