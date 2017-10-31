@@ -4,6 +4,7 @@
 #
 
 import psycopg2
+import csv
 import pandas as pd
 from sqlalchemy import create_engine
 
@@ -20,7 +21,7 @@ def getopenconnection(user='postgres', password='1234', dbname='dds_assgn1'):
 
 def test(openconnection):
     # sql to be tested
-    sql =  "SELECT * FROM rrobin_part0;"
+    sql =  "SELECT * FROM RATINGS;"
     cur = openconnection.cursor()
     cur.execute(sql)
     query = cur.fetchall()
@@ -152,7 +153,12 @@ def roundrobinpartition(ratingstablename, numberofpartitions, openconnection):
     for num in range(0, numberofpartitions):
         cur.execute('DROP TABLE IF EXISTS rrobin_part{0}'.format(num))
         # sql = "CREATE TABLE PARTITION_%s (CHECK (rating < %d AND rating >= %d)) INHERITS (RATINGS);"
-        cur.execute("CREATE TABLE rrobin_part{0} (CHECK (rating <= 5 AND rating >= 0)) INHERITS (RATINGS);".format(num))
+        cur.execute('CREATE TABLE rrobin_part{0}(' \
+          'Index SERIAL PRIMARY KEY,' \
+            'UserID INT NOT NULL,' \
+          'MovieID INT NOT NULL,' \
+          'Rating INT NOT NULL' \
+          ');'.format(num))
 
     # get count
     global count
@@ -165,7 +171,6 @@ def roundrobinpartition(ratingstablename, numberofpartitions, openconnection):
     # insert data into partition table
     cur.execute("SELECT * FROM RATINGS")
     data = cur.fetchall()
-    print data
     for row in data:
         cur.execute("INSERT INTO rrobin_part{0}(UserID, MovieID, Rating) VALUES ({1},{2},{3})".format(count, row[1], row[2], row[3]))
         count += 1
@@ -186,10 +191,13 @@ def roundrobininsert(ratingstablename, userid, itemid, rating, openconnection):
     cur = openconnection.cursor()
     cur.execute("INSERT INTO {0}(userid, movieid, rating) VALUES ({1}, {2}, {3})".format(ratingstablename, userid, itemid, rating))
     cur.execute("INSERT INTO rrobin_part{0}(userid, movieid, rating) VALUES ({1}, {2}, {3})".format(count, userid, itemid, rating))
+
+    test(openconnection)
     global count
     count += 1
     count = count % rr_partition
 
+    openconnection.commit()
     # test
 
 
@@ -243,7 +251,7 @@ def create_table(openconnection):
 """Load data into dataframe using Pandas and return it"""
 def load_data():
     ratingcolumns = ['userid', 'movieid', 'rating', 'time']
-    dataFrame = pd.read_csv('ml-10M100K/ratings.dat',delimiter="::", names=ratingcolumns)
+    dataFrame = pd.read_csv('ml-10M100K/ratings1.dat',delimiter="::", names=ratingcolumns)
     dataFrame.drop(labels='time', axis=1, inplace=True)
     return dataFrame
 
@@ -315,17 +323,17 @@ if __name__ == '__main__':
             #set filepath
             filepath = '/ml-10M100K/ratings.dat'
 
-            loadratings(table_name, filepath, con)
+            # loadratings(table_name, filepath, con)
+            # #
+            # #
+            roundrobinpartition(table_name, 1, con)
+            # #
+            # #
+            roundrobininsert(table_name,3, 3, -5, con)
             #
-            #
-            roundrobinpartition(table_name, 8, con)
-            #
-            #
-            # # roundrobininsert(table_name,3, 3,5, con)
-
-            #
-            create_table(con)
-            deletepartitionsandexit(con)
+            # #
+            # create_table(con)
+            # deletepartitionsandexit(con)
 
 
             # Here is where I will start calling your functions to test them. For example,

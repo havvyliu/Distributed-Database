@@ -348,17 +348,17 @@ if __name__ == '__main__':
             # testrangepartition(RATINGS_TABLE, 5.6, conn, RANGE_TABLE_PREFIX, 1)
 
             # ALERT:: Use only one at a time i.e. uncomment only one line at a time and run the script
-            # testroundrobinpartition(RATINGS_TABLE, 5, conn, RROBIN_TABLE_PREFIX, 0)
-            testroundrobinpartition(RATINGS_TABLE, -1, conn, RROBIN_TABLE_PREFIX, 0)
+            testroundrobinpartition(RATINGS_TABLE, 5, conn, RROBIN_TABLE_PREFIX, 0)
+            # testroundrobinpartition(RATINGS_TABLE, -1, conn, RROBIN_TABLE_PREFIX, 0)
             # testroundrobinpartition(RATINGS_TABLE, 5.6, conn, RROBIN_TABLE_PREFIX, 0)
 
             # ALERT:: Use only one at a time i.e. uncomment only one line at a time and run the script
-            # testroundrobininsert(RATINGS_TABLE, 100, 1, 3, conn, RROBIN_TABLE_PREFIX + '0')
-            testroundrobininsert(RATINGS_TABLE, 100, 1, -3, conn, RROBIN_TABLE_PREFIX + '1')
+            testroundrobininsert(RATINGS_TABLE, 100, 1, 3, conn, RROBIN_TABLE_PREFIX + '0')
+            # testroundrobininsert(RATINGS_TABLE, 100, 1, -5, conn, RROBIN_TABLE_PREFIX + '1')
 
             # ALERT:: Use only one at a time i.e. uncomment only one line at a time and run the script
-            # testrangeinsert(RATINGS_TABLE, 100, 2, 3, conn, RANGE_TABLE_PREFIX + '2')
-            testrangeinsert(RATINGS_TABLE, 100, 2, -3, conn, RANGE_TABLE_PREFIX + '3')
+            testrangeinsert(RATINGS_TABLE, 100, 2, 3, conn, RANGE_TABLE_PREFIX + '2')
+            testrangeinsert(RATINGS_TABLE, 100, 2, 5, conn, RANGE_TABLE_PREFIX + '4')
 
             choice = raw_input('Press enter to Delete all tables? ')
             if choice == '':
